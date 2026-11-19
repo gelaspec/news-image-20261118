@@ -29,6 +29,7 @@ import sys
 ART_FILE = "news-v5.jpg"
 ART_SHA256 = "3f727d1c2790d79fe45e057e1a1126eb90f98982d431c4a59ed8ab1ea43fffdc"
 MAX_BYTES = 1048576
+MAX_DIMENSION = 1024
 JPEG_MAGIC = b"\xff\xd8\xff"
 
 
@@ -39,6 +40,39 @@ def load_art():
         return handle.read()
 
 
+def jpeg_dimensions(data):
+    """Return (width, height) from the first SOF0/SOF2 marker, else None."""
+    pos = 2
+    end = len(data)
+    while pos + 1 < end:
+        if data[pos] != 0xFF:
+            return None
+        pos += 1
+        while pos < end and data[pos] == 0xFF:
+            pos += 1
+        if pos >= end:
+            return None
+        marker = data[pos]
+        pos += 1
+        if marker == 0x01 or 0xD0 <= marker <= 0xD9:
+            continue
+        if pos + 2 > end:
+            return None
+        length = (data[pos] << 8) | data[pos + 1]
+        if length < 2 or pos + length > end:
+            return None
+        if marker in (0xC0, 0xC2):
+            if pos + 7 > end:
+                return None
+            height = (data[pos + 3] << 8) | data[pos + 4]
+            width = (data[pos + 5] << 8) | data[pos + 6]
+            return (width, height)
+        if marker == 0xDA:
+            return None
+        pos += length
+    return None
+
+
 def check_art(data):
     if data[:3] != JPEG_MAGIC:
         return "held art is not a JPEG"
@@ -46,6 +80,11 @@ def check_art(data):
         return "held art failed its integrity check"
     if len(data) > MAX_BYTES:
         return "held art exceeds the 1 MiB gate"
+    dims = jpeg_dimensions(data)
+    if dims is None:
+        return "held art has no readable JPEG dimensions"
+    if dims[0] > MAX_DIMENSION or dims[1] > MAX_DIMENSION:
+        return "held art exceeds the 1024x1024 gate"
     return None
 
 
